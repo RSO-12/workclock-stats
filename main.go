@@ -1,104 +1,106 @@
 package main
 
 import (
-	"context"
+	"database/sql"
 	"fmt"
-	"log"
 	"os"
-	"time"
-
 	"github.com/graphql-go/graphql"
-	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/graphql-go/handler"
+	_ "github.com/lib/pq"
+	"net/http"
 )
 
-type EventEntity struct {
-	ID              int        `json:"id"`
-	Name            string     `json:"name"`
-	StartDate       time.Time  `json:"start_date"`
-	EndDate         time.Time  `json:"end_date"`
-	Notes           string     `json:"notes"`
-	PreviousEventID int        `json:"previous_event_id"`
-	UserID          int        `json:"user_id"`
-	EventTypeID     int        `json:"event_type_id"`
+type Event struct {
+	ID        int       `json:"id"`
+	Name      string    `json:"name"`
 }
 
-var eventEntityType = graphql.NewObject(graphql.ObjectConfig{
-	Name: "EventEntity",
-	Fields: graphql.Fields{
-		"id": &graphql.Field{
-			Type: graphql.Int,
-		},
-		"name": &graphql.Field{
-			Type: graphql.String,
-		},
-		"start_date": &graphql.Field{
-			Type: graphql.DateTime,
-		},
-		"end_date": &graphql.Field{
-			Type: graphql.DateTime,
-		},
-		"notes": &graphql.Field{
-			Type: graphql.String,
-		},
-		"previous_event_id": &graphql.Field{
-			Type: graphql.Int,
-		},
-		"user_id": &graphql.Field{
-			Type: graphql.Int,
-		},
-		"event_type_id": &graphql.Field{
-			Type: graphql.Int,
-		},
-	},
-})
+func checkErr(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
 
 func main() {
+	dbHost := os.Getenv("POSTGRES_HOST")
+	dbPort := os.Getenv("POSTGRES_PORT")
 	dbUser := os.Getenv("POSTGRES_USER")
 	dbPassword := os.Getenv("POSTGRES_PASSWORD")
 	dbName := os.Getenv("POSTGRES_DB")
-	dbHost := os.Getenv("POSTGRES_HOST")
-	dbPort := os.Getenv("POSTGRES_PORT")
 
-	connectionString := fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%s sslmode=disable", 
-		dbUser, dbPassword, dbName, dbHost, dbPort)
+	dbinfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		dbHost, dbPort, dbUser, dbPassword, dbName)
+	db, err := sql.Open("postgres", dbinfo)
+	checkErr(err)
 
-	pool, err := pgxpool.Connect(context.Background(), connectionString)
-	if err != nil {
-		log.Fatalf("Unable to connect to database: %v\n", err)
-	}
-	defer pool.Close()
+	defer db.Close()
 
-	rootQuery := graphql.Fields{
-		"events": &graphql.Field{
-			Type:        graphql.NewList(eventEntityType),
-			Description: "Get all events",
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				events := []EventEntity{}
+	eventType := graphql.NewObject(graphql.ObjectConfig{
+		Name:        "Event",
+		Description: "An event",
+		Fields: graphql.Fields{
+			"id": &graphql.Field{
+				Type:        graphql.NewNonNull(graphql.Int),
+				Description: "The identifier of the event.",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					if event, ok := p.Source.(*Event); ok {
+						return event.ID, nil
+					}
 
-				rows, err := pool.Query(context.Background(), "SELECT * FROM events")
-				if err != nil {
-					return nil, err
-				}
-				defer rows.Close()
+					return nil, nil
+				},
+			},
+			"name": &graphql.Field{
+				Type:        graphql.NewNonNull(graphql.String),
+				Description: "The name of the event.",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					if event, ok := p.Source.(*Event); ok {
+						return event.Name, nil
+					}
 
-				return events, nil
+					return nil, nil
+				},
 			},
 		},
-	}
-
-	schemaConfig := graphql.SchemaConfig{Query: graphql.NewObject(graphql.ObjectConfig{Name: "RootQuery", Fields: rootQuery})}
-	schema, err := graphql.NewSchema(schemaConfig)
-	if err != nil {
-		log.Fatalf("Error creating schema: %v", err)
-	}
-
-	// Execute GraphQL query
-	result := graphql.Do(graphql.Params{
-		Schema:        schema,
-		RequestString: "{ events { id name start_date end_date notes previous_event_id user_id event_type_id } }",
 	})
-	if len(result.Errors) > 0 {
-		log.Fatalf("Error executing query: %v", result.Errors)
-	}
-	fmt.Printf("%v\n", result)
+
+	
+	rootQuery := graphql.NewObject(graphql.ObjectConfig{
+		Name: "RootQuery",
+		Fields: graphql.Fields{
+			"events": &graphql.Field{
+				Type:        graphql.NewList(eventType),
+				Description: "List of events.",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					rows, err := db.Query("SELECT id, name FROM events")
+					checkErr(err)
+					var events []*Event
+
+					for rows.Next() {
+						event := &Event{}
+
+						err = rows.Scan(&event.ID, &event.Name)
+						checkErr(err)
+						events = append(events, event)
+					}
+
+					return events, nil
+				},
+			},
+		},
+	})
+
+	schema, _ := graphql.NewSchema(graphql.SchemaConfig{
+		Query:    rootQuery,
+	})
+
+	h := handler.New(&handler.Config{
+		Schema:   &schema,
+		Pretty:   true,
+		GraphiQL: true,
+	})
+
+	// serve HTTP
+	http.Handle("/graphql", h)
+	http.ListenAndServe(":8080", nil)
 }
