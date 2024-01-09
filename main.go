@@ -100,7 +100,12 @@ func main() {
 		GraphiQL: true,
 	})
 
-	// serve HTTP
-	http.Handle("/graphql", h)
-	http.ListenAndServe(":8080", nil)
+	mux := http.NewServeMux()
+    mux.Handle("/graphql", h)
+    mux.HandleFunc("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
+        w.WriteHeader(http.StatusOK)
+        fmt.Fprintf(w, "OK")
+    })
+
+	http.ListenAndServe(":8080", mux)
 }
