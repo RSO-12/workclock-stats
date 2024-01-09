@@ -102,9 +102,21 @@ func main() {
 
 	mux := http.NewServeMux()
     mux.Handle("/graphql", h)
+
     mux.HandleFunc("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusOK)
         fmt.Fprintf(w, "OK")
+    })
+
+	mux.HandleFunc("/heartbeat-db", func(w http.ResponseWriter, r *http.Request) {
+        err := db.Ping()
+        if err != nil {
+            w.WriteHeader(http.StatusServiceUnavailable)
+            fmt.Fprintf(w, "Database not accessible")
+            return
+        }
+        w.WriteHeader(http.StatusOK)
+        fmt.Fprintf(w, "Database is accessible")
     })
 
 	http.ListenAndServe(":8080", mux)
