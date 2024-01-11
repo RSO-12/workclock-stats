@@ -117,9 +117,9 @@ func main() {
 	rootQuery := graphql.NewObject(graphql.ObjectConfig{
 		Name: "RootQuery",
 		Fields: graphql.Fields{
-			"events": &graphql.Field{
+			"userevents": &graphql.Field{
 				Type:        graphql.NewList(eventType),
-				Description: "List of events.",
+				Description: "List of events for user.",
 				Args: graphql.FieldConfigArgument{
 					"id": &graphql.ArgumentConfig{
 						Type: graphql.Int,
@@ -130,9 +130,28 @@ func main() {
 				},
 				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
 					id, _ := params.Args["id"].(int)
-					get_type, _ := params.Args["get_type"].(string)
 
 					rows, err := db.Query("SELECT id, name, notes, user_id, start_date, end_date FROM events WHERE user_id = $1", id)
+					checkErr(err)
+					var events []*Event
+
+					for rows.Next() {
+						event := &Event{}
+
+						err = rows.Scan(&event.ID, &event.Name, &event.Notes, &event.UserID, &event.StartDate, &event.EndDate)
+						checkErr(err)
+						events = append(events, event)
+					}
+
+					return events, nil
+				},
+			},
+			"events": &graphql.Field{
+				Type:        graphql.NewList(eventType),
+				Description: "List of events.",
+				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+
+					rows, err := db.Query("SELECT id, name, notes, user_id, start_date, end_date FROM events")
 					checkErr(err)
 					var events []*Event
 
