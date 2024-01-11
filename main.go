@@ -8,11 +8,16 @@ import (
 	"github.com/graphql-go/handler"
 	_ "github.com/lib/pq"
 	"net/http"
+	"time"
 )
 
 type Event struct {
 	ID        int       `json:"id"`
 	Name      string    `json:"name"`
+	Notes 	  string    `json:"notes"`
+	UserID    int   	`json:"user_id"`
+	StartDate time.Time `json:"start_date"`
+	EndDate   time.Time `json:"end_date"`
 }
 
 func checkErr(err error) {
@@ -61,6 +66,50 @@ func main() {
 					return nil, nil
 				},
 			},
+			"notes": &graphql.Field{
+				Type:        graphql.NewNonNull(graphql.String),
+				Description: "The notes of the event.",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					if event, ok := p.Source.(*Event); ok {
+						return event.Notes, nil
+					}
+
+					return nil, nil
+				},
+			},
+			"user_id": &graphql.Field{
+				Type:        graphql.NewNonNull(graphql.Int),
+				Description: "The user on the event.",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					if event, ok := p.Source.(*Event); ok {
+						return event.UserID, nil
+					}
+
+					return nil, nil
+				},
+			},
+			"start_date": &graphql.Field{
+				Type:        graphql.NewNonNull(graphql.String),
+				Description: "The start date of the event.",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					if event, ok := p.Source.(*Event); ok {
+						return event.StartDate, nil
+					}
+
+					return nil, nil
+				},
+			},
+			"end_date": &graphql.Field{
+				Type:        graphql.NewNonNull(graphql.String),
+				Description: "The end date of the event.",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					if event, ok := p.Source.(*Event); ok {
+						return event.EndDate, nil
+					}
+
+					return nil, nil
+				},
+			},
 		},
 	})
 
@@ -71,15 +120,26 @@ func main() {
 			"events": &graphql.Field{
 				Type:        graphql.NewList(eventType),
 				Description: "List of events.",
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					rows, err := db.Query("SELECT id, name FROM events")
+				Args: graphql.FieldConfigArgument{
+					"id": &graphql.ArgumentConfig{
+						Type: graphql.Int,
+					},
+					"get_type": &graphql.ArgumentConfig{
+						Type: graphql.String,
+					},
+				},
+				Resolve: func(params graphql.ResolveParams) (interface{}, error) {
+					id, _ := params.Args["id"].(int)
+					get_type, _ := params.Args["get_type"].(string)
+
+					rows, err := db.Query("SELECT id, name, notes, user_id, start_date, end_date FROM events WHERE user_id = $1", id)
 					checkErr(err)
 					var events []*Event
 
 					for rows.Next() {
 						event := &Event{}
 
-						err = rows.Scan(&event.ID, &event.Name)
+						err = rows.Scan(&event.ID, &event.Name, &event.Notes, &event.UserID, &event.StartDate, &event.EndDate)
 						checkErr(err)
 						events = append(events, event)
 					}
